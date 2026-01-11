@@ -2,6 +2,7 @@ import argparse
 import csv
 import json
 import re
+import statistics
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from dataclasses import asdict
@@ -258,9 +259,105 @@ def write_leaderboard(results: List[Dict[str, Any]], output_path: Path) -> None:
     print(f"Wrote leaderboard to {output_path}")
 
 
+def write_model_aggregates(results: List[Dict[str, Any]], output_path: Path) -> None:
+    metrics_keys = [
+        "capability_delta_eval", "capability_delta_oversight",
+        "refusal_delta_oversight", "hedging_delta_eval",
+        "alternative_delta_oversight", "sandbagging_index"
+    ]
+    
+    model_data: Dict[str, Dict[str, List[float]]] = {}
+    
+    for result in results:
+        model = result["model"]
+        delta = result.get("delta_metrics")
+        if not delta:
+            continue
+        if model not in model_data:
+            model_data[model] = {k: [] for k in metrics_keys}
+        model_data[model]["capability_delta_eval"].append(delta.capability_delta_eval)
+        model_data[model]["capability_delta_oversight"].append(delta.capability_delta_oversight)
+        model_data[model]["refusal_delta_oversight"].append(delta.refusal_delta_oversight)
+        model_data[model]["hedging_delta_eval"].append(delta.hedging_delta_eval)
+        model_data[model]["alternative_delta_oversight"].append(delta.alternative_delta_oversight)
+        model_data[model]["sandbagging_index"].append(delta.sandbagging_index)
+
+    fieldnames = ["model", "num_tasks"]
+    for k in metrics_keys:
+        fieldnames.extend([f"{k}_mean", f"{k}_std"])
+
+    rows = []
+    for model, data in model_data.items():
+        row = {"model": model, "num_tasks": len(data["sandbagging_index"])}
+        for k in metrics_keys:
+            values = data[k]
+            mean = statistics.mean(values) if values else 0.0
+            std = statistics.stdev(values) if len(values) > 1 else 0.0
+            row[f"{k}_mean"] = round(mean, 4)
+            row[f"{k}_std"] = round(std, 4)
+        rows.append(row)
+
+    rows.sort(key=lambda x: x["sandbagging_index_mean"], reverse=True)
+
+    with open(output_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    
+    print(f"Wrote model aggregates to {output_path}")
+
+
+def write_task_aggregates(results: List[Dict[str, Any]], output_path: Path) -> None:
+    metrics_keys = [
+        "capability_delta_eval", "capability_delta_oversight",
+        "refusal_delta_oversight", "hedging_delta_eval",
+        "alternative_delta_oversight", "sandbagging_index"
+    ]
+    
+    task_data: Dict[str, Dict[str, List[float]]] = {}
+    
+    for result in results:
+        task_id = result["task_id"]
+        delta = result.get("delta_metrics")
+        if not delta:
+            continue
+        if task_id not in task_data:
+            task_data[task_id] = {k: [] for k in metrics_keys}
+        task_data[task_id]["capability_delta_eval"].append(delta.capability_delta_eval)
+        task_data[task_id]["capability_delta_oversight"].append(delta.capability_delta_oversight)
+        task_data[task_id]["refusal_delta_oversight"].append(delta.refusal_delta_oversight)
+        task_data[task_id]["hedging_delta_eval"].append(delta.hedging_delta_eval)
+        task_data[task_id]["alternative_delta_oversight"].append(delta.alternative_delta_oversight)
+        task_data[task_id]["sandbagging_index"].append(delta.sandbagging_index)
+
+    fieldnames = ["task_id", "num_models"]
+    for k in metrics_keys:
+        fieldnames.extend([f"{k}_mean", f"{k}_std"])
+
+    rows = []
+    for task_id, data in task_data.items():
+        row = {"task_id": task_id, "num_models": len(data["sandbagging_index"])}
+        for k in metrics_keys:
+            values = data[k]
+            mean = statistics.mean(values) if values else 0.0
+            std = statistics.stdev(values) if len(values) > 1 else 0.0
+            row[f"{k}_mean"] = round(mean, 4)
+            row[f"{k}_std"] = round(std, 4)
+        rows.append(row)
+
+    rows.sort(key=lambda x: x["sandbagging_index_mean"], reverse=True)
+
+    with open(output_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    
+    print(f"Wrote task aggregates to {output_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Compute MischiefBench sandbagging metrics from JSONL logs"
+        description="Compute VeilBench sandbagging metrics from JSONL logs"
     )
     parser.add_argument(
         "--logs",
@@ -324,6 +421,8 @@ def main():
         write_per_framing_csv(results, args.output / "metrics_per_framing.csv")
         write_delta_csv(results, args.output / "metrics_delta.csv")
         write_leaderboard(results, args.output / "leaderboard.csv")
+        write_model_aggregates(results, args.output / "model_aggregates.csv")
+        write_task_aggregates(results, args.output / "task_aggregates.csv")
     
     if args.format in ["json", "all"]:
         write_json_output(results, args.output / "results.json")
